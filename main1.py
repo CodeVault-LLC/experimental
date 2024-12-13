@@ -1,94 +1,116 @@
-from shapely.geometry import Polygon
 import osmnx as ox
-import pandas as pd
-import webbrowser
+from shapely.geometry import Polygon
 from rtree import index
+import geopandas as gpd
+import json
 
 # Define location and tags
 place_name = "Gjerdrum, Norway"
 tags = {"building": True}
 
+# Load and filter building data
 gdf_buildings = ox.features_from_place(place_name, tags=tags)
 gdf_buildings = gdf_buildings[gdf_buildings.geometry.apply(lambda x: isinstance(x, Polygon))]
 gdf_buildings_wgs84 = gdf_buildings.to_crs(epsg=4326)
 
-buffered_buildings = gdf_buildings_wgs84.copy()
-buffered_buildings['geometry'] = gdf_buildings_wgs84.geometry.buffer(0.5)  # Buffer by 0.5 meters (adjust as needed)
+# Reset index to ensure it is an integer
+gdf_buildings_wgs84 = gdf_buildings_wgs84.reset_index(drop=True)
 
+# Re-project geometries to a projected CRS (e.g., UTM)
+gdf_buildings_projected = gdf_buildings_wgs84.to_crs(epsg=32633)  # Replace 32633 with the appropriate EPSG code for your area
+
+# Buffer buildings slightly
+buffered_buildings = gdf_buildings_projected.copy()
+buffered_buildings['geometry'] = gdf_buildings_projected.geometry.buffer(0.5)  # Buffer by 0.5 meters
+
+# Re-project back to WGS84 if needed
+buffered_buildings = buffered_buildings.to_crs(epsg=4326)
+
+# Create spatial index for efficient searching
 spatial_index = index.Index()
 
-def get_building_id(row, fallback_id):
-    if 'ref:bygningsnr' in row and pd.notna(row['ref:bygningsnr']):
-        return int(row['ref:bygningsnr'])
-    return fallback_id  # Use a sequential or unique fallback ID
+# Insert geometries into the spatial index
+for idx, row in buffered_buildings.iterrows():
+    print(idx, row.geometry.bounds)
+    spatial_index.insert(idx, row.geometry.bounds)
 
-id_to_index = {}
-
-for idx, geometry in buffered_buildings.iterrows():
-    bounds = tuple(map(float, geometry['geometry'].bounds))  # Convert bounds to float
-    fallback_id = idx if isinstance(idx, int) else hash(idx)  # Ensure the fallback ID is an integer
-    building_id = get_building_id(geometry, fallback_id)
-
-    id_to_index[building_id] = idx
-    spatial_index.insert(building_id, bounds)
-
+# Data storage
 close_buildings = []
 building_coordinates = []
 
-length = 0
-for idx1, building1 in buffered_buildings.iterrows():
-    building1_id = get_building_id(building1, hash(idx1))  # Use the same ID logic for querying
-    possible_matches = list(spatial_index.intersection(building1['geometry'].bounds))
+# Vectorized pair checking
+for idx, building1 in buffered_buildings.iterrows():
+    possible_matches_idx = list(spatial_index.intersection(building1.geometry.bounds))
+    possible_matches = buffered_buildings.iloc[possible_matches_idx]
 
-    for building2_id in possible_matches:
-        if building1_id != building2_id:
-            idx2 = id_to_index.get(building2_id)
-            if idx2 is None:
-                continue  # Skip if mapping is invalid
+    # Filter out self and check for intersections
+    for idx2, building2 in possible_matches.iterrows():
+        if idx != idx2 and building1.geometry.intersects(building2.geometry):
+            # Avoid redundant computations
+            centroid1 = building1.geometry.centroid
+            bounds1 = building1.geometry.bounds
+            centroid2 = building2.geometry.centroid
+            bounds2 = building2.geometry.bounds
 
-            building2 = buffered_buildings.loc[idx2]  # Access row by original index
-            if building1['geometry'].intersects(building2['geometry']):
-                close_buildings.append((idx1, idx2))  # Append valid DataFrame indices
+            building_coordinates.append({
+                "building1_id": idx,
+                "building1_centroid_lat": centroid1.y,
+                "building1_centroid_lon": centroid1.x,
+                "building1_min_lat": bounds1[1],
+                "building1_min_lon": bounds1[0],
+                "building1_max_lat": bounds1[3],
+                "building1_max_lon": bounds1[2],
+                "building2_id": idx2,
+                "building2_centroid_lat": centroid2.y,
+                "building2_centroid_lon": centroid2.x,
+                "building2_min_lat": bounds2[1],
+                "building2_min_lon": bounds2[0],
+                "building2_max_lat": bounds2[3],
+                "building2_max_lon": bounds2[2],
+            })
 
-                centroid1 = building1.geometry.centroid
-                bounds1 = building1.geometry.bounds  # (minx, miny, maxx, maxy)
-                centroid2 = building2.geometry.centroid
-                bounds2 = building2.geometry.bounds  # (minx, miny, maxx, maxy)
+            close_buildings.append((idx, idx2))
 
-                building_coordinates.append({
-                    "building1_id": idx1,
-                    "building1_centroid_lat": centroid1.y,
-                    "building1_centroid_lon": centroid1.x,
-                    "building1_min_lat": bounds1[1],
-                    "building1_min_lon": bounds1[0],
-                    "building1_max_lat": bounds1[3],
-                    "building1_max_lon": bounds1[2],
-                    "building2_id": idx2,
-                    "building2_centroid_lat": centroid2.y,
-                    "building2_centroid_lon": centroid2.x,
-                    "building2_min_lat": bounds2[1],
-                    "building2_min_lon": bounds2[0],
-                    "building2_max_lat": bounds2[3],
-                    "building2_max_lon": bounds2[2],
-                })
+# Convert the building coordinates to a JSON format suitable for Google Maps
+geojson = {
+    "type": "FeatureCollection",
+    "features": []
+}
 
-                length += 1
-                if length > 10:
-                    break
-    if length > 10:
-        break
+for building in building_coordinates:
+    feature1 = {
+        "type": "Feature",
+        "geometry": {
+            "type": "Point",
+            "coordinates": [building["building1_centroid_lon"], building["building1_centroid_lat"]]
+        },
+        "properties": {
+            "id": building["building1_id"],
+            "min_lat": building["building1_min_lat"],
+            "min_lon": building["building1_min_lon"],
+            "max_lat": building["building1_max_lat"],
+            "max_lon": building["building1_max_lon"]
+        }
+    }
+    feature2 = {
+        "type": "Feature",
+        "geometry": {
+            "type": "Point",
+            "coordinates": [building["building2_centroid_lon"], building["building2_centroid_lat"]]
+        },
+        "properties": {
+            "id": building["building2_id"],
+            "min_lat": building["building2_min_lat"],
+            "min_lon": building["building2_min_lon"],
+            "max_lat": building["building2_max_lat"],
+            "max_lon": building["building2_max_lon"]
+        }
+    }
+    geojson["features"].append(feature1)
+    geojson["features"].append(feature2)
 
-if close_buildings:
-    print("Found the following pairs of buildings that are close:")
-    for pair in close_buildings:
-        print(f"Building {pair[0]} and Building {pair[1]} are close.")
-else:
-    print("No buildings are close to each other based on the specified buffer.")
+# Save the GeoJSON to a file
+with open("close_building_coordinates.json", "w") as f:
+    json.dump(geojson, f)
 
-building_coordinates_df = pd.DataFrame(building_coordinates)
-
-building_coordinates_df.to_csv("close_building_coordinates.csv", index=False)
-
-for idx, row in building_coordinates_df.iterrows():
-    webbrowser.open(f"https://www.google.com/maps/@{row['building1_centroid_lat']},{row['building1_centroid_lon']},21z?entry=ttu&g_ep=EgoyMDI0MTIxMS4wIKXMDSoASAFQAw%3D%3D")
-    webbrowser.open(f"https://www.google.com/maps/@{row['building2_centroid_lat']},{row['building2_centroid_lon']},21z?entry=ttu&g_ep=EgoyMDI0MTIxMS4wIKXMDSoASAFQAw%3D%3D")
+print(f"Number of pairs of buildings that are close: {len(close_buildings)}")
