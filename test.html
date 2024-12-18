@@ -32,7 +32,17 @@
 
       getCloseBuildingCoordinates()
         .then((data) => {
-          L.geoJSON(data).addTo(map);
+          // Add GeoJSON layer with red style
+          L.geoJSON(data, {
+            style: function () {
+              return {
+                color: "red", // Outline color
+                fillColor: "red", // Fill color
+                fillOpacity: 0.5, // Opacity of the fill
+                weight: 1, // Thickness of the outline
+              };
+            },
+          }).addTo(map);
         })
         .catch((error) => {
           console.error("Error fetching the JSON data:", error);
