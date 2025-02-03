@@ -1,17 +1,15 @@
 import numpy as np
 import noise
+from typing import NamedTuple
 
-# Constants
-CHUNK_SIZE = 16  # Size of each chunk (16x16 blocks, like Minecraft)
-WORLD_HEIGHT = 64  # Maximum height of the world
-OCTAVES = 6  # Number of layers of noise for terrain detail
-FREQUENCY = 24.0  # Controls the smoothness of terrain
-AMPLITUDE = 28.0  # Controls the height of terrain
-
-# Biome thresholds
-OCEAN_THRESHOLD = 0.5
-RIVER_THRESHOLD = 0.05
-MOUNTAIN_THRESHOLD = 0.7
+BuildSettings = NamedTuple('BuildSettings', [
+    ('octaves', int),
+    ('frequency', float),
+    ('amplitude', float),
+    ('ocean_threshold', float),
+    ('river_threshold', float),
+    ('mountain_threshold', float),
+])
 
 class Chunk:
     def __init__(self, x: int, z: int, chunk_size: int = 16, world_height: int = 64):
@@ -20,7 +18,23 @@ class Chunk:
         self.chunk_size = chunk_size
         self.world_height = world_height
 
+        self.octaves = 6
+        self.frequency = 24.0
+        self.amplitude = 28.0
+        self.ocean_threshold = 0.5
+        self.river_threshold = 0.05
+        self.mountain_threshold = 0.7
+
         self.terrain = np.zeros((chunk_size, chunk_size), dtype=int)
+
+    def build_settings(self, settings: BuildSettings):
+        """Set the build settings for this chunk."""
+        self.octaves = settings.octaves
+        self.frequency = settings.frequency
+        self.amplitude = settings.amplitude
+        self.ocean_threshold = settings.ocean_threshold
+        self.river_threshold = settings.river_threshold
+        self.mountain_threshold = settings.mountain_threshold
 
     def generate(self):
         """Generate terrain for this chunk using Perlin noise."""
@@ -32,20 +46,20 @@ class Chunk:
                 # Generate Perlin noise value for this block
                 height = int(
                     noise.pnoise2(
-                        world_x / FREQUENCY,
-                        world_z / FREQUENCY,
-                        octaves=OCTAVES,
+                        world_x / self.frequency,
+                        world_z / self.frequency,
+                        octaves=self.octaves,
                     )
-                    * AMPLITUDE
-                    + (WORLD_HEIGHT / 2)
+                    * self.amplitude
+                    + (self.world_height / 2)
                 )
 
                 # Determine biome based on height
-                if height < OCEAN_THRESHOLD * WORLD_HEIGHT:
+                if height < self.ocean_threshold * self.world_height:
                     self.terrain[x, z] = 0  # Ocean
-                elif abs(height - (WORLD_HEIGHT / 2)) < RIVER_THRESHOLD * WORLD_HEIGHT:
+                elif abs(height - (self.world_height / 2)) < self.river_threshold * self.world_height:
                     self.terrain[x, z] = 1  # River
-                elif height > MOUNTAIN_THRESHOLD * WORLD_HEIGHT:
+                elif height > self.mountain_threshold * self.world_height:
                     self.terrain[x, z] = 3  # Mountain
                 else:
                     self.terrain[x, z] = 2  # Grassland

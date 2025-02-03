@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "worldgen"
+version = "0.1.0"
+dependencies = ["pygame", "noise", "numpy"]
+
+[tool.poetry]
+name = "worldgen"
+version = "0.1.0"
+description = ""
+authors = ["lukma <[email protected]>"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v -ra -q"
+log_cli = true
+log_cli_level = "INFO"
+log_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+minversion = "6.0"
+filterwarnings = "ignore::DeprecationWarning"
+
+[tool.poetry.dependencies]
+python = "^3.11"

@@ -3,3 +3,6 @@ yolov8n.pt
 close_building_coordinates.json
 output_image.jpg
 terrain_image.jpg
+*__pycache__*
+*.pytest_cache*
+*/venv

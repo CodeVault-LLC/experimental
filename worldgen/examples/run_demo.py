@@ -1,5 +1,6 @@
 import pygame
 from worldgen.world import World
+from worldgen.chunk import BuildSettings
 
 # Constants
 SCREEN_WIDTH = 800
@@ -17,7 +18,17 @@ class Game:
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
-        self.world = World()
+
+        build_settings = BuildSettings(
+            octaves=6,
+            frequency=24.0,
+            amplitude=28.0,
+            ocean_threshold=0.5,
+            river_threshold=0.05,
+            mountain_threshold=0.7,
+        )
+
+        self.world = World(build_settings=build_settings)
         self.camera_x = 0
         self.camera_y = 0
         self.dragging = False
